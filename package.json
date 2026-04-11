@@ -1,7 +1,7 @@
 {
   "name": "mct-tunnel-server",
   "version": "1.0.0",
-  "description": "MCTunnel VPS Tunnel Server",
+  "description": "Mineway VPS Tunnel Server",
   "main": "index.js",
   "scripts": {
     "start": "node server.js",

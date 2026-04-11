@@ -116,7 +116,7 @@ wss.on("connection", (ws, req) => {
 
 // ─── Start ───────────────────────────────────────────────────────────────
 httpServer.listen(WS_PORT, "0.0.0.0", () => {
-  logger.info("MCTunnel Server started", { port: WS_PORT, domain: BASE_DOMAIN });
+  logger.info("Mineway Server started", { port: WS_PORT, domain: BASE_DOMAIN });
 });
 
 // ─── Shutdown ────────────────────────────────────────────────────────────

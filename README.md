@@ -1,6 +1,6 @@
-# MCTunnel Server
+# Mineway Server
 
-Tunnel Server สำหรับระบบ **MCTunnel**
+Tunnel Server สำหรับระบบ **Mineway**
 ทำหน้าที่รับการเชื่อมต่อผ่าน WebSockets จากปลั๊กอิน Minecraft (Java/Bedrock) ต้นทาง และเปิด Port Allocation พิเศษสำหรับให้ผู้เล่นทั่วไปต่อเข้ามาแบบดิบๆ (Layer 4)
 
 ## Architecture: Port Allocation
