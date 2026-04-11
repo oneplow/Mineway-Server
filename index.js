@@ -8,7 +8,7 @@ const server = new TunnelServer({
   wsPort:       parseInt(process.env.WS_PORT    || "8765"),
   webApiUrl:    process.env.WEB_API_URL     || "http://localhost:3000",
   webApiSecret: process.env.INTERNAL_SECRET || "change-me",
-  baseDomain:   process.env.BASE_DOMAIN     || "mctunnel.io",
+  baseDomain:   process.env.BASE_DOMAIN     || "play.lexten.store",
 });
 
 server.start();
