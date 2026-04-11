@@ -5,43 +5,29 @@ const http                = require("http");
 const crypto              = require("crypto");
 const { verifyKey }       = require("./keyVerifier");
 const TunnelSession       = require("./tunnelSession");
-const TCPDispatcher       = require("./tcpDispatcher");
-const UDPDispatcher       = require("./udpDispatcher");
 const StatsReporter       = require("./statsReporter");
 const logger              = require("./logger");
 
+/**
+ * TunnelServer — Port Allocation Architecture
+ *
+ * แต่ละ session (API Key) จะได้ port เฉพาะของตัวเอง
+ * ใช้สำหรับทั้ง TCP (Java) และ UDP (Bedrock) พร้อมกัน
+ *
+ * ผู้เล่นเชื่อมที่ VPS_IP:ASSIGNED_PORT ทั้ง Java และ Bedrock
+ * ไม่ต้อง parse Minecraft handshake หรือ routing ด้วย subdomain อีกต่อไป
+ */
 class TunnelServer {
-  constructor({ wsPort, tcpPort, webApiUrl, webApiSecret, baseDomain }) {
+  constructor({ wsPort, webApiUrl, webApiSecret, baseDomain }) {
     this.wsPort       = wsPort;
-    this.tcpPort      = tcpPort || 25565;
     this.webApiUrl    = webApiUrl;
     this.webApiSecret = webApiSecret;
     this.baseDomain   = baseDomain || process.env.BASE_DOMAIN || "mctunnel.io";
 
-    // tunnelId (subdomain) -> TunnelSession
+    // keyId -> TunnelSession
     this.sessions     = new Map();
-    // keyId -> TunnelSession (lookup อีกทาง)
-    this.sessionByKey = new Map();
 
     this.reporter = new StatsReporter({ webApiUrl, webApiSecret });
-
-    // TCP Dispatcher — Java Edition, port 25565 เดียว
-    this.tcpDispatcher = new TCPDispatcher({
-      port:        this.tcpPort,
-      baseDomain:  this.baseDomain,
-      findSession: (tunnelId) => this.sessions.get(tunnelId) || null,
-    });
-
-    // UDP Dispatcher — Bedrock Edition, port pool 19200-19999
-    this.udpDispatcher = new UDPDispatcher({
-      findSessionByPort: (port) => {
-        // หา session จาก udpPort
-        for (const s of this.sessions.values()) {
-          if (s.udpPort === port) return s;
-        }
-        return null;
-      },
-    });
   }
 
   start() {
@@ -59,12 +45,8 @@ class TunnelServer {
       logger.info("WS/HTTP server started", { port: this.wsPort });
     });
 
-    // ─── TCP Dispatcher ────────────────────────────────────────────────
-    this.tcpDispatcher.start();
-
-    logger.info("TunnelServer started", {
+    logger.info("TunnelServer started (Port Allocation mode)", {
       wsPort:     this.wsPort,
-      tcpPort:    this.tcpPort,
       baseDomain: this.baseDomain,
     });
   }
@@ -105,9 +87,15 @@ class TunnelServer {
         return;
       }
 
+      if (!result.assignedPort) {
+        logger.warn("Key has no assigned port", { ip, keyId: result.keyId });
+        ws.send(JSON.stringify({ type: "auth_failed", reason: "no_port_assigned" }));
+        ws.close(4005, "no_port_assigned");
+        return;
+      }
+
       authed = true;
 
-      // สร้าง tunnelId จาก keyId (ใช้ 8 chars แรกของ hash)
       const tunnelId = crypto
         .createHash("sha256")
         .update(result.keyId)
@@ -115,64 +103,58 @@ class TunnelServer {
         .slice(0, 8);
 
       // ─── Replace existing session ────────────────────────────────
-      const existing = this.sessions.get(tunnelId);
+      const existing = this.sessions.get(result.keyId);
       if (existing) {
-        logger.warn("Replacing session", { tunnelId });
+        logger.warn("Replacing session", { tunnelId, keyId: result.keyId });
         existing.destroy("reconnected");
       }
 
-      // ─── สร้าง session ────────────────────────────────────────────
+      // ─── สร้าง session พร้อม dedicated port ───────────────────────
       const session = new TunnelSession({
         ws,
-        keyId:      result.keyId,
-        userId:     result.userId,
+        keyId:        result.keyId,
+        userId:       result.userId,
         tunnelId,
-        plan:       result.plan,
-        maxPlayers: result.maxPlayers,
+        assignedPort: result.assignedPort,
+        plan:         result.plan,
+        maxPlayers:   result.maxPlayers,
       });
 
-      // จอง UDP port สำหรับ Bedrock
-      const udpPort = this.udpDispatcher.allocatePort(result.keyId);
-      if (udpPort) {
-        session.udpPort = udpPort;
-        // ให้ session รู้จัก udpProxy สำหรับส่ง datagram กลับผู้เล่น
-        session._udpProxy = this.udpDispatcher.proxies.get(udpPort);
-      }
-
-      // TCP ไม่ต้องจอง port แล้ว — ใช้ port 25565 เดียว routing ด้วย tunnelId
-
       session.on("destroyed", async ({ keyId, userId, rxBytes, txBytes, reason }) => {
-        this.sessions.delete(tunnelId);
-        this.sessionByKey.delete(keyId);
-
-        if (udpPort) this.udpDispatcher.releasePort(udpPort);
-
+        this.sessions.delete(keyId);
         logger.info("Session ended", { tunnelId, keyId, userId, reason });
         await this.reporter.recordAndFlush(keyId, rxBytes, txBytes);
       });
 
-      session.start();
-      session.notifyReady();
+      // start() จะ bind TCP+UDP บน assignedPort
+      const ok = await session.start();
+      if (!ok) {
+        logger.error("Failed to start session (port bind failed)", {
+          keyId: result.keyId,
+          port: result.assignedPort,
+        });
+        ws.send(JSON.stringify({ type: "auth_failed", reason: "port_bind_failed" }));
+        ws.close(4006, "port_bind_failed");
+        return;
+      }
 
-      this.sessions.set(tunnelId, session);
-      this.sessionByKey.set(result.keyId, session);
+      this.sessions.set(result.keyId, session);
 
       ws.send(JSON.stringify({
         type:     "auth_ok",
         tunnelId,
-        hostname: `${tunnelId}.${this.baseDomain}`,
-        tcpPort:  this.tcpPort,
-        udpPort:  udpPort || null,
+        hostname: `${this.baseDomain}`,
+        tcpPort:  result.assignedPort,
+        udpPort:  result.assignedPort,  // same port for both!
         plan:     result.plan,
       }));
 
       logger.info("Plugin authed", {
         tunnelId,
-        hostname: `${tunnelId}.${this.baseDomain}`,
-        keyId:    result.keyId,
-        userId:   result.userId,
-        plan:     result.plan,
-        udpPort,
+        assignedPort: result.assignedPort,
+        keyId:        result.keyId,
+        userId:       result.userId,
+        plan:         result.plan,
         ip,
       });
     });
@@ -185,7 +167,6 @@ class TunnelServer {
       res.end(JSON.stringify({
         status:   "ok",
         sessions: this.sessions.size,
-        udp:      this.udpDispatcher.stats(),
       }));
       return;
     }
@@ -196,7 +177,7 @@ class TunnelServer {
       }
       const sessions = [...this.sessions.values()].map((s) => s.stats());
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ sessions, udp: this.udpDispatcher.stats() }));
+      res.end(JSON.stringify({ sessions }));
       return;
     }
 
@@ -208,8 +189,6 @@ class TunnelServer {
     logger.info("Stopping...");
     for (const s of this.sessions.values()) s.destroy("server_shutdown");
     this.sessions.clear();
-    this.tcpDispatcher.stop();
-    this.udpDispatcher.stop();
     return new Promise((resolve) => {
       this.reporter.stop().then(() => {
         this.wss.close();
