@@ -107,6 +107,7 @@ wss.on("connection", (ws, req) => {
       hostname: result.subdomain || BASE_DOMAIN,
       tcpPort: result.assignedPort,
       udpPort: result.assignedPort,
+      isCustomPort: result.isCustomPort || false,
       plan: result.plan,
     }));
 
