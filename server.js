@@ -2,19 +2,19 @@
 require("dotenv").config();
 
 const { WebSocketServer } = require("ws");
-const http                = require("http");
-const crypto              = require("crypto");
+const http = require("http");
+const crypto = require("crypto");
 
-const logger        = require("./lib/logger");
+const logger = require("./lib/logger");
 const { verifyKey } = require("./lib/keyVerifier");
 const StatsReporter = require("./lib/stats");
 const TunnelSession = require("./lib/session");
 
 // ─── Config ──────────────────────────────────────────────────────────────
-const WS_PORT      = parseInt(process.env.WS_PORT || "8765");
-const WEB_API_URL  = process.env.WEB_API_URL     || "http://localhost:3000";
-const API_SECRET   = process.env.INTERNAL_SECRET || "change-me";
-const BASE_DOMAIN  = process.env.BASE_DOMAIN     || "play.lexten.store";
+const WS_PORT = parseInt(process.env.WS_PORT || "8765");
+const WEB_API_URL = process.env.WEB_API_URL || "http://localhost:3000";
+const API_SECRET = process.env.INTERNAL_SECRET || "change-me";
+const BASE_DOMAIN = process.env.BASE_DOMAIN || "mineway.cloud";
 
 // ─── State ───────────────────────────────────────────────────────────────
 const sessions = new Map(); // keyId -> TunnelSession
@@ -79,12 +79,12 @@ wss.on("connection", (ws, req) => {
     // Create session
     const session = new TunnelSession({
       ws,
-      keyId:        result.keyId,
-      userId:       result.userId,
+      keyId: result.keyId,
+      userId: result.userId,
       tunnelId,
       assignedPort: result.assignedPort,
-      plan:         result.plan,
-      maxPlayers:   result.maxPlayers,
+      plan: result.plan,
+      maxPlayers: result.maxPlayers,
     });
 
     session.on("destroyed", async ({ keyId, rxBytes, txBytes }) => {
@@ -102,12 +102,12 @@ wss.on("connection", (ws, req) => {
     sessions.set(result.keyId, session);
 
     ws.send(JSON.stringify({
-      type:     "auth_ok",
+      type: "auth_ok",
       tunnelId,
       hostname: result.subdomain || BASE_DOMAIN,
-      tcpPort:  result.assignedPort,
-      udpPort:  result.assignedPort,
-      plan:     result.plan,
+      tcpPort: result.assignedPort,
+      udpPort: result.assignedPort,
+      plan: result.plan,
     }));
 
     logger.info("Plugin authed", { tunnelId, port: result.assignedPort, ip });
@@ -129,7 +129,7 @@ async function shutdown() {
   httpServer.close(() => process.exit(0));
 }
 
-process.on("SIGINT",  shutdown);
+process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
-process.on("uncaughtException",  (err) => logger.error("Uncaught", { error: err.message }));
-process.on("unhandledRejection", (r)   => logger.error("Unhandled", { reason: String(r) }));
+process.on("uncaughtException", (err) => logger.error("Uncaught", { error: err.message }));
+process.on("unhandledRejection", (r) => logger.error("Unhandled", { reason: String(r) }));

@@ -37,7 +37,7 @@ mct-tunnel-server/
 | ตัวแปร | หน้าที่ | ค่าแนะนำ |
 | --- | --- | --- |
 | `WS_PORT` | พอร์ตเอาไว้รับ Plugin แบบ WebSocket | `8765` |
-| `BASE_DOMAIN` | ชื่อโดเมนที่เอาไว้ส่งกลับไปโชว์สวยๆ ในหน้า Console เกม | `play.lexten.store` |
+| `BASE_DOMAIN` | ชื่อโดเมนที่เอาไว้ส่งกลับไปโชว์สวยๆ ในหน้า Console เกม | `mineway.cloud` |
 | `WEB_API_URL` | URL ของ Next.js Web Dashboard | `http://localhost:3000` |
 | `INTERNAL_SECRET` | รหัสผ่านหลังบ้าน เอาไว้คุย API ระหว่าง Node.js ด้วยกัน | `your-secret-here` |
 | `KEY_CACHE_TTL` | ระยะเวลาจำ API Key ในเครื่อง (วินาที) | `60` |
