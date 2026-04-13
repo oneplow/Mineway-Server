@@ -21,7 +21,7 @@ const sessions = new Map(); // keyId -> TunnelSession
 const reporter = new StatsReporter({ webApiUrl: WEB_API_URL, webApiSecret: API_SECRET });
 
 // ─── HTTP ────────────────────────────────────────────────────────────────
-const httpServer = http.createServer((req, res) => {
+const httpServer = http.createServer(async (req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok", sessions: sessions.size }));
@@ -44,6 +44,33 @@ const httpServer = http.createServer((req, res) => {
     } else {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, kicked: false }));
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url.startsWith("/suspend/") && req.headers["x-internal-secret"] === API_SECRET) {
+    const keyId = req.url.split("/")[2];
+    const session = sessions.get(keyId);
+    if (session) {
+      session.suspend();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, suspended: true }));
+    } else {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, suspended: false }));
+    }
+    return;
+  }
+  if (req.method === "POST" && req.url.startsWith("/resume/") && req.headers["x-internal-secret"] === API_SECRET) {
+    const keyId = req.url.split("/")[2];
+    const session = sessions.get(keyId);
+    if (session) {
+      const ok = await session.resume();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, resumed: ok }));
+    } else {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, resumed: false }));
     }
     return;
   }
