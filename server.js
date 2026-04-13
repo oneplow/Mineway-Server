@@ -32,6 +32,22 @@ const httpServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ sessions: [...sessions.values()].map((s) => s.stats()) }));
     return;
   }
+  if (req.method === "POST" && req.url.startsWith("/kick/") && req.headers["x-internal-secret"] === API_SECRET) {
+    const keyIdToKick = req.url.split("/")[2];
+    const targetSession = sessions.get(keyIdToKick);
+    if (targetSession) {
+      targetSession.destroy("key_deleted_by_web");
+      sessions.delete(keyIdToKick);
+      logger.info(`Manually kicked session for key ${keyIdToKick}`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, kicked: true }));
+    } else {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, kicked: false }));
+    }
+    return;
+  }
+
   res.writeHead(404);
   res.end();
 });
