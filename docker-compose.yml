@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  mineway-tunnel:
+    build: .
+    container_name: mineway-server
+    restart: unless-stopped
+    # Use host network so dynamic player ports (e.g. 10000-60000) are automatically accessible 
+    # without having to map thousands of ports manually.
+    network_mode: "host"
+    env_file:
+      - .env
+    volumes:
+      # Optional: Map a local logs folder if the app outputs log files
+      - ./logs:/app/logs

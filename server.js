@@ -104,7 +104,7 @@ wss.on("connection", (ws, req) => {
     ws.send(JSON.stringify({
       type:     "auth_ok",
       tunnelId,
-      hostname: BASE_DOMAIN,
+      hostname: result.subdomain || BASE_DOMAIN,
       tcpPort:  result.assignedPort,
       udpPort:  result.assignedPort,
       plan:     result.plan,
