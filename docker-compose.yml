@@ -1,17 +1,30 @@
 version: '3.8'
 
 services:
+  # Caddy — Auto-SSL reverse proxy (handles wss:// for the plugin)
+  caddy:
+    image: caddy:2-alpine
+    container_name: mineway-caddy
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      - TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-tunnel.mineway.cloud}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Tunnel Server — WebSocket + dynamic TCP/UDP ports
   mineway-tunnel:
     build: .
     container_name: mineway-server
     restart: unless-stopped
-    # Use host network so dynamic player ports (e.g. 10000-60000) are automatically accessible 
-    # without having to map thousands of ports manually.
     network_mode: "host"
     env_file:
       - .env
     volumes:
-      # Optional: Map a local logs folder if the app outputs log files
       - ./logs:/app/logs
-      # SSL certs from Let's Encrypt (read-only)
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+
+volumes:
+  caddy_data:
+  caddy_config:
