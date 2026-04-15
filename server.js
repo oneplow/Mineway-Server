@@ -18,7 +18,22 @@ const BASE_DOMAIN = process.env.BASE_DOMAIN || "mineway.cloud";
 
 // ─── State ───────────────────────────────────────────────────────────────
 const sessions = new Map(); // keyId -> TunnelSession
-const reporter = new StatsReporter({ webApiUrl: WEB_API_URL, webApiSecret: API_SECRET });
+
+async function enforceUsageLimit({ keyId, reason }) {
+  const session = sessions.get(keyId);
+  if (!session) return;
+
+  logger.warn("Disconnecting session due to web quota enforcement", { keyId, reason });
+  session.suspend();
+  session.destroy(reason || "quota_exceeded");
+  sessions.delete(keyId);
+}
+
+const reporter = new StatsReporter({
+  webApiUrl: WEB_API_URL,
+  webApiSecret: API_SECRET,
+  onEnforcement: enforceUsageLimit,
+});
 
 // ─── HTTP ────────────────────────────────────────────────────────────────
 const httpServer = http.createServer(async (req, res) => {
