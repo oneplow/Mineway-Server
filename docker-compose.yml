@@ -13,3 +13,5 @@ services:
     volumes:
       # Optional: Map a local logs folder if the app outputs log files
       - ./logs:/app/logs
+      # SSL certs from Let's Encrypt (read-only)
+      - /etc/letsencrypt:/etc/letsencrypt:ro

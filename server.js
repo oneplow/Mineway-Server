@@ -3,6 +3,8 @@ require("dotenv").config();
 
 const { WebSocketServer } = require("ws");
 const http = require("http");
+const https = require("https");
+const fs = require("fs");
 const crypto = require("crypto");
 
 const logger = require("./lib/logger");
@@ -35,11 +37,33 @@ const reporter = new StatsReporter({
   onEnforcement: enforceUsageLimit,
 });
 
-// ─── HTTP ────────────────────────────────────────────────────────────────
-const httpServer = http.createServer(async (req, res) => {
+// ─── SSL Detection ───────────────────────────────────────────────────────
+const SSL_CERT = process.env.SSL_CERT || "/etc/letsencrypt/live/tunnel.mineway.cloud/fullchain.pem";
+const SSL_KEY = process.env.SSL_KEY || "/etc/letsencrypt/live/tunnel.mineway.cloud/privkey.pem";
+
+let useSSL = false;
+let sslOptions = {};
+
+try {
+  if (fs.existsSync(SSL_CERT) && fs.existsSync(SSL_KEY)) {
+    sslOptions = {
+      cert: fs.readFileSync(SSL_CERT),
+      key: fs.readFileSync(SSL_KEY),
+    };
+    useSSL = true;
+    logger.info("SSL certificates loaded — running in WSS mode");
+  } else {
+    logger.warn("SSL certificates not found — running in plain WS mode");
+  }
+} catch (e) {
+  logger.warn("Failed to load SSL certs, falling back to WS: " + e.message);
+}
+
+// ─── HTTP/HTTPS Handler ──────────────────────────────────────────────────
+const requestHandler = async (req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", sessions: sessions.size }));
+    res.end(JSON.stringify({ status: "ok", sessions: sessions.size, ssl: useSSL }));
     return;
   }
   if (req.url === "/stats" && req.headers["x-internal-secret"] === API_SECRET) {
@@ -92,7 +116,11 @@ const httpServer = http.createServer(async (req, res) => {
 
   res.writeHead(404);
   res.end();
-});
+};
+
+const httpServer = useSSL
+  ? https.createServer(sslOptions, requestHandler)
+  : http.createServer(requestHandler);
 
 // ─── WebSocket ───────────────────────────────────────────────────────────
 const wss = new WebSocketServer({ server: httpServer });
