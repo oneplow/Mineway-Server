@@ -1,65 +1,115 @@
-# Mineway Server
+# Mineway Tunnel Server
 
-Tunnel Server สำหรับระบบ **Mineway**
-ทำหน้าที่รับการเชื่อมต่อผ่าน WebSockets จากปลั๊กอิน Minecraft (Java/Bedrock) ต้นทาง และเปิด Port Allocation พิเศษสำหรับให้ผู้เล่นทั่วไปต่อเข้ามาแบบดิบๆ (Layer 4)
+WebSocket Tunnel Server สำหรับระบบ **Mineway** — รับการเชื่อมต่อจากปลั๊กอิน Minecraft (Java/Bedrock) แล้วเปิด TCP/UDP Port ให้ผู้เล่นเข้าเกมได้โดยตรง
 
-## Architecture: Port Allocation
+## สถาปัตยกรรม
 
-ระบบนี้เปลี่ยนจากการทำ Subdomain Routing มาใช้โมเดล **Port Allocation** เพื่อรองรับร้อยละร้อยอย่างเต็มที่กับทั้ง Java Edition และ Bedrock Edition (UDP) 
+```
+ผู้เล่น ──► [TCP/UDP :random port] ──► Tunnel Server ──► [WebSocket] ──► Minecraft Server (Plugin)
+                                            ▲
+                                      Caddy (Auto-SSL)
+                                      wss://tunnel.domain.com
+```
 
-1. **Authentication:** 
-   เมื่อ Plugin รัน จะส่ง `{"type":"auth", "key":"..."}` ผ่าน WebSocket วิ่งเข้าพอร์ต `:8765`
-2. **Key Verification:** 
-   Tunnel Server ตรวจสอบ API Key กับ `mc-tunnels-web` (Next.js API) ถ้าผ่าน จะได้ `assignedPort` ประจำตัวมา
-3. **Session Binding:** 
-   ระบบจะทำการผูก (Bind) `net.createServer()` (TCP) และ `dgram.createSocket()` (UDP) ไว้ที่พอร์ตตัวเลขนั้น (เช่น `:10000`, `:10001`...)
-4. **Proxy:** 
-   ผู้เล่นเข้าเกมผ่านพอร์ตดังกล่าว ข้อมูลทั้งหมดจะถูกส่งกลับเข้าไปใน WebSocket สู่ตัวเซิร์ฟเวอร์ Minecraft อย่างโปร่งใส (Fast & Clean)
+1. **Plugin** เชื่อม WebSocket (`wss://`) ผ่าน Caddy → ส่ง API Key เพื่อยืนยันตัวตน
+2. **Tunnel Server** ตรวจสอบ Key กับ Web Dashboard → ได้รับ port ที่กำหนดมา
+3. **Server Bind** เปิด TCP + UDP ที่ port นั้น → ผู้เล่นเข้าเกมได้ทันที
+4. **Proxy** ข้อมูลทั้งหมดไหลผ่าน WebSocket กลับไปยัง Minecraft Server แบบ Layer 4
 
-## โครงสร้างตัวแอปพลิเคชัน (Structure)
+## โครงสร้างไฟล์
 
-```text
-mct-tunnel-server/
-├── server.js              ← Entry point แจกจ่ายและเปิด WebSocketServer ต่อสายรวมครบในไฟล์เดียว
+```
+mineway-server/
+├── server.js              # Entry point — WebSocket server + HTTP endpoints
+├── Caddyfile              # Caddy reverse proxy config (Auto-SSL)
+├── docker-compose.yml     # Docker deploy (Caddy + Tunnel Server)
+├── Dockerfile
 ├── lib/
-│   ├── logger.js          ← ระบบ JSON log สำหรับลง Console / Log file 
-│   ├── keyVerifier.js     ← ลอจิกตรวจสอบ API Key แถมมี Memory Caching ในตัว
-│   ├── stats.js           ← ลอจิกรวบรวม Bandwidth ส่งรายงานกลับ Next.js 
-│   └── session.js         ← กลไก TCP+UDP Proxy + Socket Lifecycle
+│   ├── logger.js          # JSON structured logging
+│   ├── keyVerifier.js     # API Key verification + memory cache
+│   ├── stats.js           # Bandwidth reporting → Web Dashboard
+│   └── session.js         # TCP/UDP proxy + socket lifecycle
 ├── .env.example
 └── package.json
 ```
 
-## ตัวแปร Environment (.env)
+## Quick Start (Deploy)
 
-จำลองไฟล์ `.env` ตามตัวอย่างใน `.env.example`:
+### 1. Clone และตั้งค่า
 
-| ตัวแปร | หน้าที่ | ค่าแนะนำ |
-| --- | --- | --- |
-| `WS_PORT` | พอร์ตเอาไว้รับ Plugin แบบ WebSocket | `8765` |
-| `BASE_DOMAIN` | ชื่อโดเมนที่เอาไว้ส่งกลับไปโชว์สวยๆ ในหน้า Console เกม | `mineway.cloud` |
-| `WEB_API_URL` | URL ของ Next.js Web Dashboard | `http://localhost:3000` |
-| `INTERNAL_SECRET` | รหัสผ่านหลังบ้าน เอาไว้คุย API ระหว่าง Node.js ด้วยกัน | `your-secret-here` |
-| `KEY_CACHE_TTL` | ระยะเวลาจำ API Key ในเครื่อง (วินาที) | `60` |
+```bash
+git clone <repo-url> && cd mineway-server
+cp .env.example .env
+nano .env
+```
 
-## วิธีเปิดใช้งาน
+แก้ไขค่าเหล่านี้ใน `.env`:
 
-1. รันฝั่ง Web Dashboard ก่อน (แน่ใจว่าเข้า `WEB_API_URL` ได้)
-2. ก๊อปปี้ไฟล์ `.env.example` เป็น `.env` และตั้งค่าตัวแปร
-3. ลง Dependencies:
-   ```bash
-   npm install
-   ```
-4. เปิดติดเลย:
-   ```bash
-   npm start
-   ```
+```env
+TUNNEL_DOMAIN=tunnel.yourdomain.com    # Domain สำหรับ tunnel (ต้องชี้ DNS มาที่ VPS นี้)
+WEB_API_URL=https://yourdomain.com     # URL ของ Web Dashboard
+INTERNAL_SECRET=your-random-secret     # ต้องตรงกับ Web Dashboard
+```
 
-*Tip: สำหรับ Dev สามารใช้ `npm run dev` (nodemon) เพื่อคอยรีสตาร์ทตัวแอประหว่างเขียนโค้ดได้*
+### 2. Deploy
+
+```bash
+docker compose up -d --build
+```
+
+**จบ!** 🎉 ไม่ต้องติดตั้ง cert, ไม่ต้อง nginx, ไม่ต้อง cron
+
+Caddy จะ:
+- ✅ ขอ SSL certificate อัตโนมัติจาก Let's Encrypt
+- ✅ Renew อัตโนมัติ
+- ✅ Proxy `wss://tunnel.yourdomain.com` → `ws://localhost:8765`
+
+### 3. เช็คสถานะ
+
+```bash
+# ดู logs
+docker logs mineway-server
+docker logs mineway-caddy
+
+# Health check
+curl http://localhost:8765/health
+```
+
+## ย้ายไป VPS / Domain อื่น
+
+แค่เปลี่ยน `TUNNEL_DOMAIN` ใน `.env` แล้ว:
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+ไม่ต้องยุ่งกับ SSL cert เลย — Caddy จัดการให้ทั้งหมด
+
+## Environment Variables
+
+| ตัวแปร | หน้าที่ | ค่าตัวอย่าง |
+|---|---|---|
+| `TUNNEL_DOMAIN` | Domain สำหรับ Caddy auto-SSL | `tunnel.mineway.cloud` |
+| `WS_PORT` | Port ภายในของ Tunnel Server | `8765` |
+| `WEB_API_URL` | URL ของ Web Dashboard | `https://mineway.cloud` |
+| `INTERNAL_SECRET` | Secret สำหรับ internal API | `random-string-here` |
+| `BASE_DOMAIN` | Fallback domain สำหรับแสดงผล | `mineway.cloud` |
+| `KEY_CACHE_TTL` | Cache timeout ของ key verification (วินาที) | `60` |
 
 ## HTTP Endpoints (Internal)
 
-ตัวเซิร์ฟยังได้เปิดพอร์ต HTTP เบาๆ ไปที่พอร์ตเดียวกับหน้าเชื่อม WebSocket:
+| Method | Path | Auth | หน้าที่ |
+|---|---|---|---|
+| `GET` | `/health` | — | Health check (Docker, monitoring) |
+| `GET` | `/stats` | `x-internal-secret` | ดู sessions + bandwidth แบบ realtime |
+| `POST` | `/kick/{keyId}` | `x-internal-secret` | ตัดการเชื่อมต่อของ key |
+| `POST` | `/suspend/{keyId}` | `x-internal-secret` | Suspend tunnel (ผู้เล่นทั้งหมดถูกตัด) |
+| `POST` | `/resume/{keyId}` | `x-internal-secret` | Resume tunnel กลับมา |
 
-- `GET /health` : เช็คว่าเซิร์ฟเวอร์รอดไหม (เช็ค Healthcheck ของ Docker ฯลฯ)
-- `GET /stats` : ดูลิสต์ Session ตอนนี้พร้อม Bandwidth แบบสดๆ (ระบุ header `x-internal-secret`)
+## Prerequisites
+
+- VPS ที่มี Docker + Docker Compose
+- Domain ที่ชี้ DNS (A Record) มายัง IP ของ VPS
+- Port 80, 443 เปิดอยู่ (สำหรับ Caddy SSL)
+- Port 10000-60000 เปิดอยู่ (สำหรับ player connections)
