@@ -1,3 +1,5 @@
-{$TUNNEL_DOMAIN:tunnel.mineway.cloud} {
+# สามารถใส่ Domain เพิ่มได้ด้วยการคั่นด้วยลูกน้ำ (comma) 
+# เช่น tunnel.mineway.cloud, tunnel2.mineway.cloud, th-1.mineway.cloud
+{$TUNNEL_DOMAINS:tunnel.mineway.cloud, lexten.store} {
     reverse_proxy localhost:8765
 }
