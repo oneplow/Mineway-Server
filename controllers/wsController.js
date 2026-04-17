@@ -21,6 +21,7 @@ const AUTH_TIMEOUT_MS = 10_000; // 10 seconds to authenticate
 function createWsHandler({ sessions, reporter, webApiUrl, nodeToken, baseDomain }) {
   return function handleConnection(ws, req) {
     const ip = req.socket.remoteAddress;
+    logger.info("Incoming WebSocket connection...", { ip });
     let authed = false;
 
     // Auto-close if plugin doesn't authenticate in time
@@ -103,7 +104,13 @@ function createWsHandler({ sessions, reporter, webApiUrl, nodeToken, baseDomain 
         plan:         result.plan,
       }));
 
-      logger.info("Plugin authed", { tunnelId, port: result.assignedPort, ip });
+      logger.info("====================================");
+      logger.info(`✅ Plugin successfully connected and authed!`);
+      logger.info(`   Tunnel ID : ${tunnelId}`);
+      logger.info(`   Domain    : ${result.subdomain || baseDomain}`);
+      logger.info(`   TCP Port  : ${result.assignedPort}`);
+      logger.info(`   IP        : ${ip}`);
+      logger.info("====================================");
     });
   };
 }
