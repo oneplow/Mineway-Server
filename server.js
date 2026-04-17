@@ -122,11 +122,6 @@ wss.on("connection", (ws, req) => {
       ws.close(4004, result.reason);
       return;
     }
-    if (!result.assignedPort) {
-      ws.send(JSON.stringify({ type: "auth_failed", reason: "no_port_assigned" }));
-      ws.close(4005, "no_port_assigned");
-      return;
-    }
 
     authed = true;
     const tunnelId = crypto.createHash("sha256").update(result.keyId).digest("hex").slice(0, 8);
