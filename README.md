@@ -1,115 +1,284 @@
 # Mineway Tunnel Server
 
-WebSocket Tunnel Server สำหรับระบบ **Mineway** — รับการเชื่อมต่อจากปลั๊กอิน Minecraft (Java/Bedrock) แล้วเปิด TCP/UDP Port ให้ผู้เล่นเข้าเกมได้โดยตรง
+Mineway Tunnel Server is the Node.js WebSocket relay that sits on your VPS and bridges Minecraft players to plugin-hosted servers. Each plugin connects via WebSocket, authenticates with an API key, and the server dynamically allocates TCP/UDP ports for player traffic.
 
-## สถาปัตยกรรม
-
-```
-ผู้เล่น ──► [TCP/UDP :random port] ──► Tunnel Server ──► [WebSocket] ──► Minecraft Server (Plugin)
-                                            ▲
-                                      Caddy (Auto-SSL)
-                                      wss://tunnel.domain.com
-```
-
-1. **Plugin** เชื่อม WebSocket (`wss://`) ผ่าน Caddy → ส่ง API Key เพื่อยืนยันตัวตน
-2. **Tunnel Server** ตรวจสอบ Key กับ Web Dashboard → ได้รับ port ที่กำหนดมา
-3. **Server Bind** เปิด TCP + UDP ที่ port นั้น → ผู้เล่นเข้าเกมได้ทันที
-4. **Proxy** ข้อมูลทั้งหมดไหลผ่าน WebSocket กลับไปยัง Minecraft Server แบบ Layer 4
-
-## โครงสร้างไฟล์
+## Architecture
 
 ```
-mineway-server/
-├── server.js              # Entry point — WebSocket server + HTTP endpoints
-├── Caddyfile              # Caddy reverse proxy config (Auto-SSL)
-├── docker-compose.yml     # Docker deploy (Caddy + Tunnel Server)
-├── Dockerfile
-├── lib/
-│   ├── logger.js          # JSON structured logging
-│   ├── keyVerifier.js     # API Key verification + memory cache
-│   ├── stats.js           # Bandwidth reporting → Web Dashboard
-│   └── session.js         # TCP/UDP proxy + socket lifecycle
-├── .env.example
-└── package.json
+Player (MC Client)
+    │
+    ▼  TCP/UDP :assignedPort
+┌─────────────────────────┐
+│   Mineway Tunnel Server │  ← WebSocket relay (port 8765)
+│   (this project)        │
+└───────────┬─────────────┘
+            │ WebSocket (ws:// or wss://)
+            ▼
+┌─────────────────────────┐
+│   MC Server + Plugin    │  ← runs on the server owner's machine
+└─────────────────────────┘
 ```
 
-## Quick Start (Deploy)
+## Requirements
 
-### 1. Clone และตั้งค่า
+- **Node.js** 18+ (LTS recommended)
+- **npm** (comes with Node.js)
+- A **domain name** pointed to this VPS (for SSL via Caddy, optional but recommended)
+- **Mineway Web** dashboard running and accessible (for API key verification)
+
+---
+
+## Quick Start
+
+### 1. Clone & Install
 
 ```bash
-git clone <repo-url> && cd mineway-server
-cp .env.example .env
-nano .env
+git clone <your-repo-url> mineway-server
+cd mineway-server
+npm install
 ```
 
-แก้ไขค่าเหล่านี้ใน `.env`:
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
 
 ```env
-TUNNEL_DOMAIN=tunnel.yourdomain.com    # Domain สำหรับ tunnel (ต้องชี้ DNS มาที่ VPS นี้)
-WEB_API_URL=https://yourdomain.com     # URL ของ Web Dashboard
-INTERNAL_SECRET=your-random-secret     # ต้องตรงกับ Web Dashboard
+# URL of the Mineway Web dashboard (API server)
+WEB_API_URL=https://mineway.cloud
+
+# Node token from Admin > Nodes in the dashboard
+NODE_TOKEN=your-node-token-from-dashboard
+
+# Base domain (used as fallback hostname for tunnels)
+BASE_DOMAIN=mineway.cloud
+
+# Internal WebSocket port (default: 8765)
+# WS_PORT=8765
 ```
 
-### 2. Deploy
+### 3. Run
 
 ```bash
-docker compose up -d --build
+# Production
+npm start
+
+# Development (auto-restart on changes)
+npm run dev
 ```
 
-**จบ!** 🎉 ไม่ต้องติดตั้ง cert, ไม่ต้อง nginx, ไม่ต้อง cron
+---
 
-Caddy จะ:
-- ✅ ขอ SSL certificate อัตโนมัติจาก Let's Encrypt
-- ✅ Renew อัตโนมัติ
-- ✅ Proxy `wss://tunnel.yourdomain.com` → `ws://localhost:8765`
+## Deployment with Docker (Linux)
 
-### 3. เช็คสถานะ
+The recommended way to deploy on Linux is with Docker Compose, which includes **Caddy** for automatic SSL:
 
 ```bash
-# ดู logs
-docker logs mineway-server
-docker logs mineway-caddy
+cp .env.example .env
+# Edit .env with your values
 
-# Health check
-curl http://localhost:8765/health
+docker compose up -d
 ```
 
-## ย้ายไป VPS / Domain อื่น
+This starts:
+- **Caddy** — Auto-SSL reverse proxy on port 443 (handles `wss://`)
+- **Mineway Server** — WebSocket relay on port 8765 (internal)
 
-แค่เปลี่ยน `TUNNEL_DOMAIN` ใน `.env` แล้ว:
+### Caddy Configuration
+
+Edit `Caddyfile` to set your domain(s):
+
+```caddyfile
+# Add your domains separated by commas
+your-node.example.com, node2.example.com {
+    reverse_proxy localhost:8765
+}
+```
+
+---
+
+## Deployment without Docker (Standalone)
+
+If you prefer to run without Docker (e.g., on Windows), you only need Node.js:
 
 ```bash
-docker compose down
-docker compose up -d --build
+npm install
+npm start
 ```
 
-ไม่ต้องยุ่งกับ SSL cert เลย — Caddy จัดการให้ทั้งหมด
+> **Note:** Without Caddy, the plugin will connect directly via `ws://` (unencrypted) on the configured port. For production use with SSL, set up Caddy or nginx as a reverse proxy separately.
+
+---
+
+## Firewall Configuration
+
+Mineway Server dynamically allocates **TCP and UDP ports** for each tunnel session. The default range is `10000–60000`. You **must** open these ports on your firewall for players to connect.
+
+### Ubuntu / Debian (Linux)
+
+#### Using UFW (recommended)
+
+```bash
+# Allow the WebSocket port (internal, needed if not using Caddy)
+sudo ufw allow 8765/tcp
+
+# Allow Minecraft tunnel port range
+sudo ufw allow 10000:60000/tcp
+sudo ufw allow 10000:60000/udp
+
+# If using Caddy for SSL
+sudo ufw allow 443/tcp
+sudo ufw allow 80/tcp
+
+# Apply
+sudo ufw enable
+sudo ufw status
+```
+
+#### Using iptables (advanced)
+
+```bash
+# WebSocket port
+sudo iptables -A INPUT -p tcp --dport 8765 -j ACCEPT
+
+# Minecraft tunnel port range (TCP + UDP)
+sudo iptables -A INPUT -p tcp --dport 10000:60000 -j ACCEPT
+sudo iptables -A INPUT -p udp --dport 10000:60000 -j ACCEPT
+
+# Caddy ports (if using SSL)
+sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+
+# Save rules (persist after reboot)
+sudo apt install iptables-persistent -y
+sudo netfilter-persistent save
+```
+
+### Windows Server
+
+Open **PowerShell as Administrator** and run:
+
+```powershell
+# Allow the WebSocket port
+New-NetFirewallRule -DisplayName "Mineway WS Port" -Direction Inbound -Protocol TCP -LocalPort 8765 -Action Allow
+
+# Allow Minecraft tunnel port range (TCP)
+New-NetFirewallRule -DisplayName "Mineway Tunnel Ports TCP" -Direction Inbound -Protocol TCP -LocalPort 10000-60000 -Action Allow
+
+# Allow Minecraft tunnel port range (UDP — for Bedrock Edition)
+New-NetFirewallRule -DisplayName "Mineway Tunnel Ports UDP" -Direction Inbound -Protocol UDP -LocalPort 10000-60000 -Action Allow
+```
+
+To verify rules were created:
+
+```powershell
+Get-NetFirewallRule -DisplayName "Mineway*" | Format-Table DisplayName, Direction, Action, Enabled
+```
+
+To remove rules if needed:
+
+```powershell
+Remove-NetFirewallRule -DisplayName "Mineway Tunnel Ports TCP"
+Remove-NetFirewallRule -DisplayName "Mineway Tunnel Ports UDP"
+Remove-NetFirewallRule -DisplayName "Mineway WS Port"
+```
+
+---
+
+## Running as a Background Service
+
+### Linux (systemd)
+
+Create `/etc/systemd/system/mineway-server.service`:
+
+```ini
+[Unit]
+Description=Mineway Tunnel Server
+After=network.target
+
+[Service]
+Type=simple
+User=mineway
+WorkingDirectory=/opt/mineway-server
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable mineway-server
+sudo systemctl start mineway-server
+
+# Check status
+sudo systemctl status mineway-server
+
+# View logs
+journalctl -u mineway-server -f
+```
+
+### Windows (PM2 or NSSM)
+
+#### Option A: PM2
+
+```powershell
+npm install -g pm2
+pm2 start server.js --name mineway-server
+pm2 save
+pm2 startup   # Follow the instructions to set up auto-start
+```
+
+#### Option B: NSSM (Non-Sucking Service Manager)
+
+```powershell
+# Download NSSM from https://nssm.cc/download
+nssm install MinewaySever "C:\Program Files\nodejs\node.exe" "C:\path\to\mineway-server\server.js"
+nssm set MinewayServer AppDirectory "C:\path\to\mineway-server"
+nssm start MinewayServer
+```
+
+---
 
 ## Environment Variables
 
-| ตัวแปร | หน้าที่ | ค่าตัวอย่าง |
-|---|---|---|
-| `TUNNEL_DOMAIN` | Domain สำหรับ Caddy auto-SSL | `tunnel.mineway.cloud` |
-| `WS_PORT` | Port ภายในของ Tunnel Server | `8765` |
-| `WEB_API_URL` | URL ของ Web Dashboard | `https://mineway.cloud` |
-| `INTERNAL_SECRET` | Secret สำหรับ internal API | `random-string-here` |
-| `BASE_DOMAIN` | Fallback domain สำหรับแสดงผล | `mineway.cloud` |
-| `KEY_CACHE_TTL` | Cache timeout ของ key verification (วินาที) | `60` |
-
-## HTTP Endpoints (Internal)
-
-| Method | Path | Auth | หน้าที่ |
+| Variable | Required | Default | Description |
 |---|---|---|---|
-| `GET` | `/health` | — | Health check (Docker, monitoring) |
-| `GET` | `/stats` | `x-internal-secret` | ดู sessions + bandwidth แบบ realtime |
-| `POST` | `/kick/{keyId}` | `x-internal-secret` | ตัดการเชื่อมต่อของ key |
-| `POST` | `/suspend/{keyId}` | `x-internal-secret` | Suspend tunnel (ผู้เล่นทั้งหมดถูกตัด) |
-| `POST` | `/resume/{keyId}` | `x-internal-secret` | Resume tunnel กลับมา |
+| `WEB_API_URL` | ✅ | `http://localhost:3000` | URL of the Mineway Web dashboard |
+| `NODE_TOKEN` | ✅ | `change-me` | Authentication token (from Admin > Nodes) |
+| `BASE_DOMAIN` | ❌ | `mineway.cloud` | Fallback domain for tunnel hostnames |
+| `WS_PORT` | ❌ | `8765` | Internal WebSocket listen port |
+| `KEY_CACHE_TTL` | ❌ | `60` | API key verification cache (seconds) |
+| `NODE_ENV` | ❌ | `production` | Node environment |
 
-## Prerequisites
+---
 
-- VPS ที่มี Docker + Docker Compose
-- Domain ที่ชี้ DNS (A Record) มายัง IP ของ VPS
-- Port 80, 443 เปิดอยู่ (สำหรับ Caddy SSL)
-- Port 10000-60000 เปิดอยู่ (สำหรับ player connections)
+## Security Notes
+
+- **Opening port range 10000–60000 is safe.** These ports only accept Minecraft protocol traffic piped through the tunnel. They do not expose any shell, admin, or management interface.
+- **API key verification** happens on every connection through the Mineway Web API, ensuring only authorized plugins can create tunnels.
+- **For production, always use SSL** via Caddy or nginx. This encrypts WebSocket traffic and prevents API key interception.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| Plugin: `Connection timed out (Code: -1)` | Firewall blocking ports, or SSL mismatch | Check firewall rules. If not using Caddy, use `ws://` (port ≠ 443) |
+| Plugin: `auth_failed` | Wrong API key, or `WEB_API_URL` misconfigured | Verify `.env` settings and reset the API key |
+| Plugin: `port_bind_failed` | Another process using the assigned port | Restart the server, or adjust `PORT_RANGE_START` |
+| Dashboard shows 0 traffic | Server not reporting stats | Restart the tunnel server (stats report every 30s now) |
+| Players can't join but tunnel is connected | DNS not resolving, or firewall blocking | Ensure `*.yourdomain.com` DNS points to VPS IP |
+
+---
+
+## License
+
+Proprietary — Mineway Cloud

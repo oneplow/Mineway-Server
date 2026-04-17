@@ -76,11 +76,15 @@ function createWsHandler({ sessions, reporter, webApiUrl, nodeToken, baseDomain 
         assignedPort: result.assignedPort,
         plan:         result.plan,
         maxPlayers:   result.maxPlayers,
+        reporter,
       });
 
       session.on("destroyed", async ({ keyId, rxBytes, txBytes }) => {
         sessions.delete(keyId);
-        await reporter.recordAndFlush(keyId, rxBytes, txBytes);
+        // Flush any remaining un-drained bytes
+        if (rxBytes > BigInt(0) || txBytes > BigInt(0)) {
+          await reporter.recordAndFlush(keyId, rxBytes, txBytes);
+        }
       });
 
       // ── Start tunnel (bind TCP/UDP) ─────────────────────
