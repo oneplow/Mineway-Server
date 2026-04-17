@@ -12,7 +12,7 @@ const { createWsHandler }   = require("./controllers/wsController");
 // ─── Config ──────────────────────────────────────────────────────────────
 const WS_PORT     = parseInt(process.env.WS_PORT || "8765", 10);
 const WEB_API_URL = process.env.WEB_API_URL || "http://localhost:3000";
-const API_SECRET  = process.env.INTERNAL_SECRET || "change-me";
+const NODE_TOKEN  = process.env.NODE_TOKEN || "change-me";
 const BASE_DOMAIN = process.env.BASE_DOMAIN || "mineway.cloud";
 
 // ─── State ───────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ const sessions = new Map(); // keyId -> TunnelSession
 // ─── Usage Reporter ──────────────────────────────────────────────────────
 const reporter = new StatsReporter({
   webApiUrl: WEB_API_URL,
-  webApiSecret: API_SECRET,
+  nodeToken: NODE_TOKEN,
   onEnforcement: async ({ keyId, reason }) => {
     const session = sessions.get(keyId);
     if (!session) return;
@@ -33,7 +33,7 @@ const reporter = new StatsReporter({
 });
 
 // ─── HTTP Server ─────────────────────────────────────────────────────────
-const httpServer = http.createServer(createHttpHandler(sessions, API_SECRET));
+const httpServer = http.createServer(createHttpHandler(sessions, NODE_TOKEN));
 
 // ─── WebSocket Server ────────────────────────────────────────────────────
 const wss = new WebSocketServer({ server: httpServer });
@@ -41,7 +41,7 @@ wss.on("connection", createWsHandler({
   sessions,
   reporter,
   webApiUrl:  WEB_API_URL,
-  apiSecret:  API_SECRET,
+  nodeToken:  NODE_TOKEN,
   baseDomain: BASE_DOMAIN,
 }));
 

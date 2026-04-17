@@ -18,11 +18,11 @@ function json(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
-function isAuthorized(req, secret) {
-  return req.headers["x-internal-secret"] === secret;
+function isAuthorized(req, token) {
+  return req.headers["x-node-token"] === token;
 }
 
-function createHttpHandler(sessions, apiSecret) {
+function createHttpHandler(sessions, nodeToken) {
   return async function (req, res) {
     const { method, url } = req;
 
@@ -32,7 +32,7 @@ function createHttpHandler(sessions, apiSecret) {
     }
 
     // ── Protected endpoints ─────────────────────────────
-    if (!isAuthorized(req, apiSecret)) {
+    if (!isAuthorized(req, nodeToken)) {
       // Return 401 only for known protected routes, 404 for everything else
       const protectedPrefixes = ["/stats", "/kick/", "/suspend/", "/resume/"];
       if (protectedPrefixes.some((p) => url.startsWith(p))) {

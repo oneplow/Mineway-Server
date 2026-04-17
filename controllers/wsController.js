@@ -18,7 +18,7 @@ const TunnelSession = require("../lib/session");
 
 const AUTH_TIMEOUT_MS = 10_000; // 10 seconds to authenticate
 
-function createWsHandler({ sessions, reporter, webApiUrl, apiSecret, baseDomain }) {
+function createWsHandler({ sessions, reporter, webApiUrl, nodeToken, baseDomain }) {
   return function handleConnection(ws, req) {
     const ip = req.socket.remoteAddress;
     let authed = false;
@@ -49,7 +49,7 @@ function createWsHandler({ sessions, reporter, webApiUrl, apiSecret, baseDomain 
       }
 
       // ── Verify key with Web API ─────────────────────────
-      const result = await verifyKey(msg.key, { webApiUrl, webApiSecret: apiSecret });
+      const result = await verifyKey(msg.key, { webApiUrl, nodeToken });
 
       if (!result.valid) {
         ws.send(JSON.stringify({ type: "auth_failed", reason: result.reason }));
