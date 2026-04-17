@@ -45,7 +45,9 @@ function createHttpHandler(sessions, nodeToken) {
     // GET /stats
     if (url === "/stats") {
       return json(res, 200, {
-        sessions: [...sessions.values()].map((s) => s.stats()),
+        sessions: [...sessions.values()]
+          .filter((s) => !s.suspended)
+          .map((s) => s.stats()),
       });
     }
 
